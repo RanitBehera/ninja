@@ -1,0 +1,13 @@
+[project]
+name = "ninja"
+version = "0.1.0"
+description = "MP-Gadget BigFile utilities and analysis helpers"
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "astropy",
+]
