@@ -43,7 +43,10 @@ class _PIGHeader(mpg._PIGHeader):
         
     @property
     def LinkedHeader(self):
-        linked_header_path = self.path.replace("PIG","PART")
+        if "RPIG_" in self.path:
+            linked_header_path = self.path.replace("RPIG","PART")
+        elif "PIG_" in self.path:
+            linked_header_path = self.path.replace("PIG","PART")
 
         if os.path.exists(linked_header_path):
             return _PARTHeader(linked_header_path)
@@ -91,6 +94,24 @@ class _PIG(mpg._PIG):
         print("- Snapshot".ljust(cell_width),":", self.snap_name,flush=True)
         print("- Redshift".ljust(cell_width),":", f"{self.Header.Redshift():.02f}",flush=True)
 
+    def GetParticleBlockNonMPI(self,ptype=None):
+        # Calculates particle blocks to directly access the group chunk
+        # This is faster then mask based filtering with GroupID
+        lbt=self.FOFGroups.LengthByType().T
+        cum_lbt=numpy.cumsum(lbt,axis=1)
+
+        # offset so directly access with tgid indexing instead of off by one
+        # This is because tgid starts with 1 based indexing
+        zeros = numpy.zeros((cum_lbt.shape[0],1))
+        block_start = numpy.int64(numpy.hstack((zeros,zeros,cum_lbt)))
+        block_end = numpy.int64(numpy.hstack((zeros,cum_lbt,zeros)))
+
+        if ptype is not None:
+            block_start=block_start[ptype]
+            block_end=block_end[ptype]
+
+        return block_start,block_end
+
 
 
 class _Sim(mpg._Folder):
@@ -130,7 +151,7 @@ class _Sim(mpg._Folder):
         if not isinstance(snap_num,int):raise TypeError
         return _PART(os.path.join(self.snapdir,f"PART_{snap_num:03}"))
 
-    def PIG(self,snap_num:int=None,z:float=None,original=False):
+    def PIG(self,snap_num:int=None,z:float=None,original=True):
         if original:
             if snap_num is None:
                 if z is None:raise ValueError("Either Snapnumber or Redshift is needed.")
@@ -141,6 +162,18 @@ class _Sim(mpg._Folder):
         else:
             return self.RPIG(snap_num,z)
 
+    def RPIG(self,snap_num:int=None,z:float=None):
+        if snap_num is None:
+            if z is None:raise ValueError("Either Snapnumber or Redshift is needed.")
+            else:snap_num = self.SnapNumFromRedshift(z)
+            
+        if not isinstance(snap_num,int):raise TypeError
+        
+        rpig_dir = os.path.join(self.snapdir,f"RPIG_{snap_num:03}")
+        if os.path.exists(rpig_dir):
+            return _PIG(rpig_dir)
+        else:
+            raise FileNotFoundError("RPIG is not Found. Makesure to create it. Otherwise use original=True")
 
 
 from ninja import _SIM_NAME_HINTS
@@ -151,13 +184,11 @@ def Simulation(path:str=None,name:_SIM_NAME_HINTS=None) -> _Sim:
     if (path is not None) and (name is not None):
         raise ValueError("ERROR : Both path and name are provided. Please provide only one of them.")
     
-    print("hi")
     if (name is not None) and (path is None):
         # Get simulation root path from system environment variable if present,
         # else use current working directory : "${cwd}/simulations"
         # User can create a symbolic link to the simulations folder in the current working directory for ease of use.
         sim_root = os.getenv("MPGADGET_SIM_ROOT", os.path.join(os.getcwd(),"simulations"))
-        print("ENV :",os.getenv("MPGADGET_SIM_ROOT"))
         path = os.path.join(sim_root,name)
 
     if not os.path.exists(path):
